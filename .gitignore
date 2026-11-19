@@ -1,0 +1,10 @@
+# Locally compiled executables and caches.
+.build/
+.native-cache/
+
+# Machine-specific configuration and credentials must remain local.
+local-host.json
+.env
+.env.*
+*.key
+*.pem

@@ -1,0 +1,21 @@
+id = "local.windows-directory-links"
+name = "Windows Directory Links"
+version = "0.2.1"
+min_herdr_version = "0.9.5"
+description = "Open local OSC 8 file directory links in Windows Explorer with Ctrl+click."
+platforms = ["windows"]
+
+[[build]]
+command = ["node", "build-plugin.js"]
+
+[[actions]]
+id = "open-directory"
+title = "Open local directory in Explorer"
+contexts = ["pane"]
+command = [".build/directory-links.exe", "--click"]
+
+[[link_handlers]]
+id = "local-directory"
+title = "Open local directory in Explorer"
+pattern = "(?i)^file://"
+action = "open-directory"
