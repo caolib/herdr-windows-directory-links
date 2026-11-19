@@ -33,7 +33,7 @@ herdr plugin install caolib/herdr-windows-directory-links
 - 本地 `plugin link` 不执行 build，开发时先运行 `node scripts/build-plugin.js`。
 - 同 ID 插件已经本地 link 时，先停用并解除本地 link，再做 GitHub 安装；解除链接不等于删除源码或本机绑定。
 - build 不提供运行时点击 context／socket 环境，只编译，不运行 `configure-local.js`。
-- 安装后进入结果中 `plugin_root` 指定的 Herdr 管理源码目录。在可信本地 pane 中取得 `herdr plugin config-dir local.windows-directory-links`，用 `scripts/configure-local.js` 首次绑定，再启用。
+- 安装命令只打印摘要。使用 `herdr plugin list --plugin local.windows-directory-links --json` 的 `result.plugins[0].plugin_root` 获取 Herdr 管理的源码目录。在可信本地 pane 中取得 `herdr plugin config-dir local.windows-directory-links`，用该安装目录的 `scripts/configure-local.js` 首次绑定，再启用。
 - 已有绑定先核验，仍有效则省略创建步骤；不能自动删除、覆盖或重新绑定。当前绑定包括 MachineGuid 哈希、Herdr exe 最终路径和 socket，不包含插件源码根目录。
 - `--ref REF` 是固定 revision 参数；tag 的具体支持、更新后自动重编译和重装配置保留应以实际验收为准，不凭参数名推断。
 

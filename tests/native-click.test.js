@@ -3,6 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const tempDirectory = require('./temp-directory');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -62,7 +63,7 @@ test('C# URL policy matches JS strict rejection and literal Unicode corpus', win
 });
 
 test('C# directory policy handles root, Unicode, junctions and refuses files/UNC', windows, async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-native-click-test-'));
+  const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-native-click-test-'));
   const target = path.join(root, '中文 空格 👨‍👩‍👧 #%,(x)&');
   await fs.mkdir(target);
   const junction = path.join(root, 'junction');
@@ -97,7 +98,7 @@ test('C# directory policy handles root, Unicode, junctions and refuses files/UNC
 
 test('direct runtime validates actual bound pane and target without opening windows',
   { ...windows, skip: windows.skip || !process.env.HERDR_PANE_ID }, async t => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-native-runtime-test-'));
+    const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-native-runtime-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     await configure(root);
     const env = clickEnv(pathToFileURL(process.env.SystemRoot).href, root);

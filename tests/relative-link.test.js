@@ -3,6 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const tempDirectory = require('./temp-directory');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -27,7 +28,7 @@ const documentExtensions = [
 ];
 
 test('common documents including relative README pass native validation', windows, async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-document-types-test-'));
+  const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-document-types-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 3 }));
   const files = documentExtensions.map(extension => path.join(root, 'README' + extension));
   await Promise.all(files.map(file => fs.writeFile(file, 'validation fixture; never opened')));
@@ -58,7 +59,7 @@ for (const [value, expected] of [
 }
 
 test('restricted and extensionless files retain their exact path for Explorer selection, never file open', windows, async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-restricted-files-test-'));
+  const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-restricted-files-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 3 }));
   const names = ['program.EXE', 'script.cmd', 'script.ps1', 'script.js', 'script.py', 'shortcut.lnk',
     'link.url', 'installer.msi', 'control.cpl', 'page.hta', 'macro.docm', 'README',
@@ -124,7 +125,7 @@ test('relative document requires valid pane cwd and never falls back from invali
 });
 
 test('file validation preserves directories, browses restricted files and leases the target ancestry', windows, async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-relative-docx-test-'));
+  const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-relative-docx-test-'));
   const junction = path.join(root, 'alias');
   const network = path.join(root, 'network');
   const disguised = path.join(root, 'disguised.exe');
@@ -177,7 +178,7 @@ test('file validation preserves directories, browses restricted files and leases
 });
 
 test('an ordinary-looking link to a restricted final file selects the final file under lease', windows, async t => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-select-final-test-'));
+  const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-select-final-test-'));
   const alias = path.join(root, 'ordinary.md');
   t.after(async () => {
     await fs.unlink(alias).catch(async error => {

@@ -38,12 +38,14 @@ herdr-plugin.toml    Herdr 生产入口及构建声明
 herdr plugin install caolib/herdr-windows-directory-links
 herdr plugin disable local.windows-directory-links
 $configDir = herdr plugin config-dir local.windows-directory-links
+$pluginInfo = herdr plugin list --plugin local.windows-directory-links --json | ConvertFrom-Json
+$pluginRoot = $pluginInfo.result.plugins[0].plugin_root
 ```
 
-进入安装结果中的 `plugin_root` 目录（Herdr 管理的源码目录，不是原开发仓库），首次绑定后启用：
+安装命令只打印摘要；通过列表 JSON 获取 Herdr 管理的实际源码根目录，不能使用原开发仓库。首次绑定后启用：
 
 ```powershell
-node scripts/configure-local.js "$configDir"
+node (Join-Path $pluginRoot 'scripts/configure-local.js') "$configDir"
 herdr plugin enable local.windows-directory-links
 ```
 

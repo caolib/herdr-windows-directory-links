@@ -3,6 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const tempDirectory = require('./temp-directory');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -171,7 +172,7 @@ test('non-Windows host is rejected', async () => {
 
 test('native Windows validation uses actual temporary directories without opening windows',
   { skip: process.platform !== 'win32', timeout: 120000 }, async t => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'herdr-directory-links-test-'));
+    const root = await tempDirectory(path.join(os.tmpdir(), 'herdr-directory-links-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const { drives } = plugin.nativeShell({ operation: 'drives' });
     for (const name of ['Desktop', '中文 空格 🐱 👨‍👩‍👧 a‌b', '#%,(x)&', "apostrophe's %TEMP%", ',/select,']) {
