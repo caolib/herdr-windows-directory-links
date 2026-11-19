@@ -8,9 +8,9 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawnSync, spawn } = require('node:child_process');
 const net = require('node:net');
-const plugin = require('./open-directory');
-const { configure } = require('./configure-local');
-const { build } = require('./build-plugin');
+const plugin = require('../src/open-directory');
+const { configure } = require('../scripts/configure-local');
+const { build } = require('../scripts/build-plugin');
 let executable;
 function exe() { return executable || (executable = build()); }
 function run(args, options = {}) {

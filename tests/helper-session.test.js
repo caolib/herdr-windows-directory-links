@@ -2,8 +2,8 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createSession } = require('./helper-session');
-const plugin = require('./open-directory');
+const { createSession } = require('../src/helper-session');
+const plugin = require('../src/open-directory');
 
 const fixture = `const r=require('node:readline').createInterface({input:process.stdin});
 r.on('line',line=>console.log(JSON.stringify({pid:process.pid,...JSON.parse(line)})));`;

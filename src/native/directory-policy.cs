@@ -111,9 +111,18 @@ public static class DirectoryPolicy {
             !((raw[8] >= 'a' && raw[8] <= 'z') || (raw[8] >= 'A' && raw[8] <= 'Z')) ||
             raw[9] != ':' || raw[10] != '/' || Char.IsWhiteSpace(raw[raw.Length - 1]) ||
             raw.IndexOfAny(new[] { '\\', '?', '#' }) >= 0) Fail("invalid_url");
+        string urlPath = DecodePath(raw.Substring(8));
+        foreach (string part in urlPath.Split('/'))
+            if (part == "." || part == "..") Fail("invalid_url");
+        string path = urlPath.Replace('/', '\\');
+        CheckPath(path);
+        return path;
+    }
+
+    static string DecodePath(string raw) {
         StringBuilder decoded = new StringBuilder(raw.Length);
         byte[] bytes = new byte[raw.Length];
-        for (int i = 8; i < raw.Length; ) {
+        for (int i = 0; i < raw.Length; ) {
             if (raw[i] != '%') { decoded.Append(raw[i++]); continue; }
             int count = 0;
             while (i < raw.Length && raw[i] == '%') {
@@ -127,12 +136,49 @@ public static class DirectoryPolicy {
             try { decoded.Append(StrictUtf8.GetString(bytes, 0, count)); }
             catch (DecoderFallbackException) { Fail("invalid_url"); }
         }
-        string urlPath = decoded.ToString();
-        foreach (string part in urlPath.Split('/'))
-            if (part == "." || part == "..") Fail("invalid_url");
-        string path = urlPath.Replace('/', '\\');
-        CheckPath(path);
-        return path;
+        return decoded.ToString();
+    }
+
+    // Generic association opening, not a file allowlist. These common
+    // execution/shortcut types are selected in their containing directory only.
+    // Associations and file contents are still user/OS-managed, not trusted
+    // merely because a filename passed this policy.
+    static readonly string[] RestrictedExtensions = {
+        ".exe", ".com", ".bat", ".cmd", ".scr", ".pif", ".cpl", ".dll", ".ocx",
+        ".msi", ".msp", ".mst", ".hta", ".js", ".jse", ".vbs", ".vbe", ".wsf", ".wsh",
+        ".ps1", ".psm1", ".psd1", ".lnk", ".url", ".scf", ".reg", ".msc",
+        ".application", ".appref-ms", ".jar", ".py", ".pyw", ".rb", ".pl", ".sh",
+        ".bash", ".zsh", ".fish", ".ahk", ".au3", ".lua", ".php", ".inf", ".gadget",
+        ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppam", ".sldm"
+    };
+    public static bool CanOpenFile(string path) {
+        string extension = Path.GetExtension(path);
+        // Avoid Windows executable-suffix probing for an extensionless lpFile.
+        if (String.IsNullOrEmpty(extension)) return false;
+        foreach (string restricted in RestrictedExtensions)
+            if (String.Equals(extension, restricted, StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    // A path without a drive is not necessarily relative: rooted paths, UNC and
+    // other URI schemes must still be rejected. Never use the plugin process cwd.
+    public static string ParseLink(string raw, string cwd) {
+        if (!String.IsNullOrEmpty(raw) && raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            return ParseUrl(raw);
+        if (String.IsNullOrEmpty(raw) || raw.Length > 16384 || UnsafeText(raw) ||
+            raw[0] == '/' || raw[0] == '\\' || Char.IsWhiteSpace(raw[raw.Length - 1]) ||
+            raw.IndexOfAny(new[] { ':', '?', '#' }) >= 0) Fail("invalid_url");
+        string relative = DecodePath(raw).Replace('/', '\\');
+        while (relative.StartsWith(".\\", StringComparison.Ordinal)) relative = relative.Substring(2);
+        if (relative.Length == 0 || relative[0] == '\\' || UnsafeText(relative)) Fail("unsafe_path");
+        CheckComponents(relative, false); // Parent traversal remains outside supported scope.
+        try {
+            if (cwd != null) cwd = cwd.Replace('/', '\\');
+            CheckPath(cwd);
+        } catch { Fail("unverified_cwd"); }
+        string target = cwd.TrimEnd('\\') + "\\" + relative;
+        CheckPath(target);
+        return target;
     }
 
     static void NativeFailure() { NativeFailure(Marshal.GetLastWin32Error()); }
@@ -189,6 +235,7 @@ public static class DirectoryPolicy {
 
     sealed class WalkState : IDisposable {
         public readonly List<SafeFileHandle> handles = new List<SafeFileHandle>();
+        public bool file;
         int links;
         public void Link() { if (++links > 40) Fail("link_loop"); }
         public void Dispose() {
@@ -196,13 +243,12 @@ public static class DirectoryPolicy {
         }
     }
 
-    static SafeFileHandle OpenMetadata(string path, WalkState state, out FileInfo info) {
-        // FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY, FILE_SHARE_READ only.
-        // The directory read right makes Windows enforce delete-sharing for rename.
-        // No directory entries/content are read. OPEN_EXISTING,
-        // BACKUP_SEMANTICS | OPEN_REPARSE_POINT. Keep checked ancestors alive and
-        // deny write/delete sharing until Resolve returns. Never follow the leaf.
-        SafeFileHandle handle = CreateFileW(path, 0x81, 1, IntPtr.Zero, 3,
+    static SafeFileHandle OpenMetadata(string path, WalkState state, out FileInfo info, bool sharedLeaf = false) {
+        // READ_ATTRIBUTES | LIST_DIRECTORY (READ_DATA for files). No content read.
+        // Checked ancestors deny write/delete sharing. The leaf permits write
+        // sharing for associated editors but still denies rename/replacement.
+        // OPEN_EXISTING, BACKUP_SEMANTICS | OPEN_REPARSE_POINT: never follow blindly.
+        SafeFileHandle handle = CreateFileW(path, 0x81, sharedLeaf ? 3u : 1u, IntPtr.Zero, 3,
             0x02200000, IntPtr.Zero);
         if (handle.IsInvalid) {
             int error = Marshal.GetLastWin32Error();
@@ -290,14 +336,14 @@ public static class DirectoryPolicy {
         return path;
     }
 
-    static string Walk(string input, WalkState state) {
+    static string Walk(string input, WalkState state, bool allowFiles = false) {
         CheckPath(input);
         string[] parts = input.Substring(3).Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
         string mapped = CheckDrive(input);
         if (mapped != null) {
             state.Link();
             string physical = Walk(mapped, state);
-            return parts.Length == 0 ? physical : Walk(Append(physical, parts, 0), state);
+            return parts.Length == 0 ? physical : Walk(Append(physical, parts, 0), state, allowFiles);
         }
         string current = input.Substring(0, 3);
         string parent = current;
@@ -309,17 +355,19 @@ public static class DirectoryPolicy {
                 CheckPath(current);
             }
             FileInfo info;
-            SafeFileHandle handle = OpenMetadata(current, state, out info);
+            bool leaf = index + 1 == parts.Length;
+            SafeFileHandle handle = OpenMetadata(current, state, out info, allowFiles && leaf);
+            bool directory = (info.attributes & DirectoryAttribute) != 0;
+            if (!directory && (!leaf || !allowFiles)) Fail("not_directory");
             if ((info.attributes & ReparseAttribute) != 0) {
                 state.Link();
                 bool relative;
                 string destination = TargetPath(ReadTarget(handle, out relative), relative, parent);
                 // Validate target's drive before any access below the reparse point.
-                string resolved = Walk(destination, state);
-                return index + 1 == parts.Length ? resolved :
-                    Walk(Append(resolved, parts, index + 1), state);
+                string resolved = Walk(destination, state, allowFiles && leaf);
+                return leaf ? resolved :
+                    Walk(Append(resolved, parts, index + 1), state, allowFiles);
             }
-            if ((info.attributes & DirectoryAttribute) == 0) Fail("not_directory");
             string final = FinalName(handle);
             // A different parent means the ancestor/mapping changed while walking.
             // Allow canonical casing and 8.3 expansion of this one checked leaf.
@@ -330,9 +378,11 @@ public static class DirectoryPolicy {
                     Fail("path_changed");
             } else if (!String.Equals(current, final, StringComparison.OrdinalIgnoreCase)) Fail("path_changed");
             current = final;
+            if (leaf) state.file = !directory;
         }
-        // The last retained no-follow handle has already proved this is a real
-        // directory with a checked canonical local path (including drive roots).
+        // The last retained no-follow handle has proved this is a directory or
+        // a file with a checked canonical local path; the consumer chooses
+        // association opening versus selecting a restricted file in its parent.
         return current;
     }
 
@@ -342,6 +392,17 @@ public static class DirectoryPolicy {
         CheckPath(path);
         using (WalkState state = new WalkState()) {
             return consume(Walk(path, state));
+        }
+    }
+
+    public static T WithResolvedLink<T>(string path, Func<string, bool, T> consume) {
+        CheckPath(path);
+        using (WalkState state = new WalkState()) {
+            string resolved = Walk(path, state, true);
+            // Keep the exact leased file for selection, rather than losing it to
+            // its parent directory. Either restricted filename forbids execution.
+            bool selectFile = state.file && (!CanOpenFile(path) || !CanOpenFile(resolved));
+            return consume(resolved, selectFile);
         }
     }
 

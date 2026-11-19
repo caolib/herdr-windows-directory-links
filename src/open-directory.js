@@ -290,7 +290,7 @@ async function verifyLocalPane(context, env = process.env, dependencies = {}) {
   delete childEnv.HERDR_SESSION;
   const response = (dependencies.query || ((binary, args, options) =>
     runJson(binary, args, options, 'unverified_pane')))(identity.binary,
-    ['pane', 'get', context.focused_pane_id], { env: childEnv, cwd: __dirname });
+    ['pane', 'get', context.focused_pane_id], { env: childEnv, cwd: path.join(__dirname, '..') });
   assertPaneResponse(response, context);
 }
 

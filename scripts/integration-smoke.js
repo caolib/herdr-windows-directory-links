@@ -33,7 +33,7 @@ function request(method, params) {
 async function main() {
   const [pane, activate] = process.argv.slice(2);
   if (process.platform !== 'win32' || !pane || (activate && !['--activate', '--action'].includes(activate))) {
-    throw new Error('Usage: node integration-smoke.js <test-pane-id> [--activate|--action]');
+    throw new Error('Usage: node scripts/integration-smoke.js <test-pane-id> [--activate|--action]');
   }
   if (activate === '--action') {
     // Synthetic API context: tests Herdr argv/runtime and actual opening, NOT mouse/OSC 8.
@@ -52,7 +52,7 @@ async function main() {
   }
   const read = spawnSync(process.env.HERDR_BIN_PATH,
     ['pane', 'read', pane, '--source', 'visible', '--format', 'text'],
-    { encoding: 'utf8', shell: false, timeout: 10000 });
+    { encoding: 'utf8', shell: false, timeout: 10000, cwd: require('node:path').join(__dirname, '..') });
   if (read.error || read.status !== 0) throw new Error('Could not read test pane');
   const lines = read.stdout.split(/\r?\n/);
   const row = lines.findIndex(line => /^\s*Desktop\s*$/.test(line));

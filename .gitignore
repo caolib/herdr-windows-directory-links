@@ -2,6 +2,9 @@
 .build/
 .native-cache/
 
+# Temporary agent worktrees are not plugin source.
+.claude/worktrees/
+
 # Machine-specific configuration and credentials must remain local.
 local-host.json
 .env

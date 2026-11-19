@@ -1,6 +1,6 @@
 'use strict';
 
-// Manual OSC 8 smoke fixture. Merely prints links; never opens a directory.
+// Manual OSC 8 smoke fixture. Merely prints links; never opens a target.
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -18,4 +18,14 @@ if (process.platform !== 'win32') {
   process.stdout.write(`  ${link(pathToFileURL(path.parse(desktop).root).href, 'Drive root')}\n`);
   process.stdout.write(`  ${link('https://herdr.dev/tui/docs/plugins/', 'HTTPS (not handled by this plugin)')}\n`);
   process.stdout.write('Desktop fixture assumes the standard home/Desktop location; use your actual statusline for redirected desktops.\n');
+  const file = process.argv[2];
+  if (file) {
+    if (!/^[^:/\\?#][^:?#]*$/.test(file) || /\p{Cc}/u.test(file)) {
+      process.stderr.write('Optional argument must be a relative local path.\n');
+      process.exitCode = 1;
+    } else {
+      process.stdout.write(`  ${link(file, 'Relative local file or directory')}\n`);
+      process.stdout.write(`  ${link(pathToFileURL(path.resolve(file)).href, 'Absolute path (same shell cwd)')}\n`);
+    }
+  }
 }

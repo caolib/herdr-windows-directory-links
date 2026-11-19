@@ -18,13 +18,21 @@ function verifyCache(directory) {
   return executable;
 }
 
+const PLUGIN_ROOT = path.join(__dirname, '..');
+const SOURCE_NAMES = [
+  'src/native/windows-shell.cs',
+  'src/native/directory-policy.cs',
+  'src/native/click-runtime.cs',
+  'src/native/windows-shell.ps1',
+];
+
 function ensureHelper(systemRoot, env = process.env, options = {}) {
-  const sources = ['windows-shell.cs', 'directory-policy.cs', 'click-runtime.cs']
-    .map(name => path.join(__dirname, name));
-  const builder = path.join(__dirname, 'windows-shell.ps1');
+  const sources = SOURCE_NAMES.slice(0, 3).map(name => path.join(PLUGIN_ROOT, name));
+  const builder = path.join(PLUGIN_ROOT, SOURCE_NAMES[3]);
   // Source-addressed cache: updates compile anew; every execution checks integrity.
-  const version = digest(Buffer.concat([...sources, builder].map(file => fs.readFileSync(file))));
-  const root = options.cacheRoot || path.join(__dirname, '.native-cache');
+  const version = digest(Buffer.concat(SOURCE_NAMES.map(name =>
+    fs.readFileSync(path.join(PLUGIN_ROOT, name)))));
+  const root = options.cacheRoot || path.join(PLUGIN_ROOT, '.native-cache');
   const directory = path.join(root, version);
   if (fs.existsSync(directory)) return verifyCache(directory);
   fs.mkdirSync(root, { recursive: true });

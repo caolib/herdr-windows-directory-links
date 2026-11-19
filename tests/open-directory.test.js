@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const plugin = require('./open-directory');
+const plugin = require('../src/open-directory');
 
 function clickEnv(url = 'file:///C:/Users/example/Desktop') {
   return {

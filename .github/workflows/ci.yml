@@ -1,0 +1,46 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Check JavaScript syntax
+        run: |
+          Get-ChildItem src,scripts,tests -Filter *.js -Recurse | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Build native entrypoint from source
+        run: node scripts/build-plugin.js
+      - name: Run automated tests without opening applications
+        run: node --test tests/open-directory.test.js tests/local-context.test.js tests/native-helper.test.js tests/helper-session.test.js tests/native-click.test.js tests/native-pipe.test.js tests/relative-link.test.js
+      - name: Explain integration-test scope
+        run: |
+          "Hosted runners lack a bound local Herdr pane; those integration tests are skipped."
+          "Run the same test command from a trusted local Herdr pane for the full suite."

@@ -40,6 +40,31 @@ public static class HerdrDirectoryShell {
     }
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool ShellExecuteExW(ref ExecuteInfo info);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    static extern IntPtr ILCreateFromPathW(string path);
+    [DllImport("shell32.dll", ExactSpelling = true)]
+    static extern int SHOpenFolderAndSelectItems(IntPtr item, uint count, IntPtr children, uint flags);
+    [DllImport("ole32.dll", ExactSpelling = true)]
+    static extern int CoInitializeEx(IntPtr reserved, uint flags);
+    [DllImport("ole32.dll", ExactSpelling = true)]
+    static extern void CoUninitialize();
+
+    static void SelectFile(string path) {
+        // Explicit STA initialization; S_OK and S_FALSE both need balancing.
+        if (CoInitializeEx(IntPtr.Zero, 0x6) < 0) // APARTMENTTHREADED | DISABLE_OLE1DDE
+            throw new Exception("shell_select_failed");
+        IntPtr item = IntPtr.Zero;
+        try {
+            item = ILCreateFromPathW(path); // Literal Unicode path, not explorer /select argv.
+            if (item == IntPtr.Zero) throw new Exception("shell_select_failed");
+            // count=0: open this item's parent and select the item, without executing it.
+            if (SHOpenFolderAndSelectItems(item, 0, IntPtr.Zero, 0) < 0)
+                throw new Exception("shell_select_failed");
+        } finally {
+            if (item != IntPtr.Zero) Marshal.FreeCoTaskMem(item);
+            CoUninitialize();
+        }
+    }
 
     static void CheckLocal(string path) {
         if (String.IsNullOrEmpty(path) || path.Length > 259 ||
@@ -50,7 +75,7 @@ public static class HerdrDirectoryShell {
         if (type != 2 && type != 3 && type != 5 && type != 6)
             throw new Exception("nonlocal_drive");
     }
-    public static string Run(string path, bool open) {
+    public static string Run(string path, bool open, bool allowFiles = false, bool selectFile = false) {
         CheckLocal(path);
         // Metadata only; keep handle alive and deny delete sharing while launching.
         using (SafeFileHandle handle = CreateFileW(path, 0, 3, IntPtr.Zero,
@@ -60,7 +85,11 @@ public static class HerdrDirectoryShell {
             if (!GetFileInformationByHandle(handle, out info))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             if ((info.attributes & 0x400) != 0) throw new Exception("path_changed");
-            if ((info.attributes & 0x10) == 0) throw new Exception("not_directory");
+            bool directory = (info.attributes & 0x10) != 0;
+            if (!directory && !allowFiles) throw new Exception("not_directory");
+            if (selectFile && (directory || !allowFiles)) throw new Exception("invalid_operation");
+            if (!directory && !selectFile && !DirectoryPolicy.CanOpenFile(path))
+                throw new Exception("unsupported_file");
             StringBuilder buffer = new StringBuilder(32768);
             uint length = GetFinalPathNameByHandleW(handle, buffer, 32768, 0);
             if (length == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -70,14 +99,18 @@ public static class HerdrDirectoryShell {
                 StringComparison.OrdinalIgnoreCase)) throw new Exception("unsafe_final_path");
             final = final.Substring(4);
             CheckLocal(final);
+            if (!directory && !selectFile && !DirectoryPolicy.CanOpenFile(final))
+                throw new Exception("unsupported_file");
             if (!String.Equals(Path.GetFullPath(path).TrimEnd('\\'),
                 final.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
                 throw new Exception("path_changed");
-            if (open) {
+            if (open && selectFile) {
+                SelectFile(final); // The complete target/ancestor lease still surrounds this call.
+            } else if (open) {
                 ExecuteInfo execute = new ExecuteInfo();
                 execute.size = (uint)Marshal.SizeOf(typeof(ExecuteInfo));
                 execute.mask = 0x00000500; // NOASYNC | FLAG_NO_UI; no env expansion.
-                execute.verb = "explore";
+                execute.verb = directory ? "explore" : "open";
                 execute.file = final; // Literal Unicode filename, NOT a command line.
                 execute.parameters = null;
                 execute.show = 1;
@@ -141,9 +174,13 @@ public static class HerdrDirectoryShell {
                     Console.Error.WriteLine("operation_timeout"); Environment.Exit(1);
                 }, null, 15000, System.Threading.Timeout.Infinite)) {
                     bool open = args[0] == "--click";
-                    string resolved = ClickRuntime.Run(open);
-                    if (open) Console.WriteLine("[windows-directory-links] opened local directory");
-                    else Console.WriteLine(new JavaScriptSerializer().Serialize(new { path = resolved, opened = false }));
+                    bool selectFile;
+                    string resolved = ClickRuntime.Run(open, out selectFile);
+                    if (open) Console.WriteLine(selectFile
+                        ? "[windows-directory-links] requested local file selection"
+                        : "[windows-directory-links] opened local target");
+                    else Console.WriteLine(new JavaScriptSerializer().Serialize(new {
+                        path = resolved, opened = false, action = selectFile ? "select" : "open" }));
                     return 0;
                 }
             }
@@ -156,8 +193,43 @@ public static class HerdrDirectoryShell {
                         string op = policyRequest["operation"] as string;
                         string value = policyRequest["value"] as string;
                         string result;
+                        bool selectFile = false;
                         if (op == "parse") result = DirectoryPolicy.ParseUrl(value);
                         else if (op == "resolve") result = DirectoryPolicy.Resolve(value);
+                        else if (op == "parse-link") result = ClickRuntime.ResolveLink(value, policyRequest);
+                        else if (op == "validate-link") {
+                            string target = ClickRuntime.ResolveLink(value, policyRequest);
+                            result = DirectoryPolicy.WithResolvedLink(target, (resolved, select) => {
+                                selectFile = select;
+                                return Run(resolved, false, true, select);
+                            });
+                        }
+                        else if (op == "document-lease-test" || op == "file-lease-test") {
+                            if (op == "document-lease-test" && !DirectoryPolicy.CanOpenFile(value))
+                                throw new Exception("unsupported_file");
+                            result = DirectoryPolicy.WithResolvedLink(value, (resolved, select) => {
+                                selectFile = select;
+                                // A document editor may open read/write, but the document and
+                                // its checked parent still cannot be renamed during dispatch.
+                                using (File.Open(resolved, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) { }
+                                bool blocked = false;
+                                try { File.Move(resolved, resolved + ".rename-test"); }
+                                catch (IOException) { blocked = true; }
+                                if (!blocked) {
+                                    File.Move(resolved + ".rename-test", resolved);
+                                    throw new Exception("path_changed");
+                                }
+                                string parent = Path.GetDirectoryName(resolved);
+                                blocked = false;
+                                try { Directory.Move(parent, parent + ".rename-test"); }
+                                catch (IOException) { blocked = true; }
+                                if (!blocked) {
+                                    Directory.Move(parent + ".rename-test", parent);
+                                    throw new Exception("path_changed");
+                                }
+                                return Run(resolved, false, true, select);
+                            });
+                        }
                         else if (op == "lease-test") {
                             result = DirectoryPolicy.WithResolved(value, resolved => {
                                 // Test fixtures only: both leaf and checked parent stay leased.
@@ -174,7 +246,9 @@ public static class HerdrDirectoryShell {
                             });
                         }
                         else throw new Exception("invalid_operation");
-                        results.Add(new { path = result });
+                        if (op == "validate-link" || op == "document-lease-test" || op == "file-lease-test")
+                            results.Add(new { path = result, opened = false, action = selectFile ? "select" : "open" });
+                        else results.Add(new { path = result });
                     } catch (Exception error) {
                         results.Add(new { error = ErrorCode(error) });
                     }
@@ -242,7 +316,8 @@ public static class HerdrDirectoryShell {
         if (Array.IndexOf(new[] { "invalid_operation", "unsafe_path", "nonlocal_drive",
             "not_directory", "path_too_long", "unsafe_final_path", "path_changed", "host_unavailable",
             "invalid_url", "invalid_context", "unbound_host", "unverified_pane", "remote_pane",
-            "helper_cache_invalid", "link_loop", "unsupported_reparse", "not_found", "access_denied" }, error.Message) >= 0)
+            "helper_cache_invalid", "link_loop", "unsupported_reparse", "not_found", "access_denied",
+            "unverified_cwd", "unsupported_file", "shell_select_failed" }, error.Message) >= 0)
             return error.Message;
         return "native_failure";
     }

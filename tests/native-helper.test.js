@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { ensureHelper } = require('./native-helper');
-const plugin = require('./open-directory');
+const { ensureHelper } = require('../src/native-helper');
+const plugin = require('../src/open-directory');
 
 test('compiled facts preserve host binding and current local drives',
   { skip: process.platform !== 'win32' }, () => {

@@ -3,7 +3,7 @@
 // Explicit one-time local policy binding; never opens Explorer or enables plugins.
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { localIdentity, validateWindowsPath } = require('./open-directory');
+const { localIdentity, validateWindowsPath } = require('../src/open-directory');
 
 async function configure(configDirectory, env = process.env) {
   if (process.platform !== 'win32') throw new Error('Windows only.');
@@ -19,7 +19,7 @@ async function configure(configDirectory, env = process.env) {
 
 if (require.main === module) {
   if (process.argv.length !== 3) {
-    process.stderr.write('Usage: node configure-local.js <Herdr-plugin-config-directory>\n');
+    process.stderr.write('Usage: node scripts/configure-local.js <Herdr-plugin-config-directory>\n');
     process.exitCode = 1;
   } else {
     configure(process.argv[2]).catch(error => {

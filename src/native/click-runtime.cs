@@ -13,7 +13,8 @@ public static class ClickRuntime {
     const string PluginId = "local.windows-directory-links";
     const string HandlerId = "local-directory";
     static readonly string[] SourceNames = {
-        "windows-shell.cs", "directory-policy.cs", "click-runtime.cs", "windows-shell.ps1"
+        "src/native/windows-shell.cs", "src/native/directory-policy.cs",
+        "src/native/click-runtime.cs", "src/native/windows-shell.ps1"
     };
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
     static extern Microsoft.Win32.SafeHandles.SafePipeHandle CreateFileW(string name, uint access,
@@ -140,7 +141,7 @@ public static class ClickRuntime {
         }
         throw Error("unverified_pane");
     }
-    static void VerifyPane(string socket, Dictionary<string, object> context) {
+    static Dictionary<string, object> VerifyPane(string socket, Dictionary<string, object> context) {
         try {
             // Exact Herdr 0.9.5 Windows namespace mapping; only local server '.'.
             using (var pipe = ConnectLocal(socket)) {
@@ -161,16 +162,38 @@ public static class ClickRuntime {
                 if (Text(pane, "pane_id") != Text(context, "focused_pane_id") ||
                     Text(pane, "tab_id") != Text(context, "tab_id") ||
                     Text(pane, "workspace_id") != Text(context, "workspace_id")) throw Error("unverified_pane");
+                return pane;
             }
         } catch { throw Error("unverified_pane"); }
     }
-    public static string Run(bool open) {
+    public static string ResolveLink(string raw, Dictionary<string, object> pane) {
+        if (!String.IsNullOrEmpty(raw) && raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            return DirectoryPolicy.ParseUrl(raw);
+        // The verified clicked pane, not the plugin's cwd or whichever pane now
+        // has focus. Prefer foreground cwd; only absent/empty values use pane cwd.
+        object foreground;
+        if (pane.TryGetValue("foreground_cwd", out foreground) && foreground != null && !(foreground is string))
+            throw Error("unverified_cwd");
+        string cwd = Text(pane, "foreground_cwd");
+        if (String.IsNullOrEmpty(cwd)) cwd = Text(pane, "cwd");
+        return DirectoryPolicy.ParseLink(raw, cwd);
+    }
+    public static string Run(bool open, out bool selectFile) {
         VerifyExecutable();
         var context = Context();
-        string target = DirectoryPolicy.ParseUrl(Text(context, "clicked_url"));
+        string raw = Text(context, "clicked_url");
+        // Preserve early strict validation for existing file URI clicks.
+        bool fileUrl = raw.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
+        string target = fileUrl ? DirectoryPolicy.ParseUrl(raw) : null;
         string socket = BindHost();
-        VerifyPane(socket, context);
-        return DirectoryPolicy.WithResolved(target,
-            resolved => HerdrDirectoryShell.Run(resolved, open));
+        var pane = VerifyPane(socket, context);
+        if (!fileUrl) target = ResolveLink(raw, pane);
+        bool selection = false;
+        string result = DirectoryPolicy.WithResolvedLink(target, (resolved, select) => {
+            selection = select;
+            return HerdrDirectoryShell.Run(resolved, open, true, select);
+        });
+        selectFile = selection;
+        return result;
     }
 }

@@ -1,21 +1,21 @@
 id = "local.windows-directory-links"
 name = "Windows Directory Links"
-version = "0.2.1"
+version = "0.4.1"
 min_herdr_version = "0.9.5"
-description = "Open local OSC 8 file directory links in Windows Explorer with Ctrl+click."
+description = "Open local OSC 8 files with their default apps; resolve relative paths from the clicked pane and select restricted files in Explorer."
 platforms = ["windows"]
 
 [[build]]
-command = ["node", "build-plugin.js"]
+command = ["node", "scripts/build-plugin.js"]
 
 [[actions]]
 id = "open-directory"
-title = "Open local directory in Explorer"
+title = "Open local file or directory"
 contexts = ["pane"]
 command = [".build/directory-links.exe", "--click"]
 
 [[link_handlers]]
 id = "local-directory"
-title = "Open local directory in Explorer"
-pattern = "(?i)^file://"
+title = "Open local file or directory"
+pattern = '(?i)^(?:file://|[^:/\\?#][^:?#]*$)'
 action = "open-directory"
